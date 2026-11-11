@@ -1,0 +1,5 @@
+# NU6.3-aware zcash crates need rustc >= 1.88. Stable 1.94.1 builds the whole
+# Sapling stack for wasm32 (with Homebrew LLVM clang for secp256k1-sys).
+[toolchain]
+channel = "1.94.1"
+targets = ["wasm32-unknown-unknown"]

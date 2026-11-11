@@ -1,0 +1,36 @@
+# Build recipes for leokit-shielded-sign.
+#
+# secp256k1-sys (via zcash_script) needs a clang with a wasm32 backend;
+# Xcode's clang has none, so point CC at Homebrew LLVM (`brew install llvm`).
+# wasm-bindgen-cli must match the crate pin: `cargo install wasm-bindgen-cli --version 0.2.100 --locked`.
+
+llvm := "/opt/homebrew/opt/llvm"
+
+# Release build → pkg/ (+ SHA256SUMS). Commit pkg/ and upload the same files
+# to /wasm/leokit-shielded-sign/v<version>/ — never overwrite a hosted version.
+# Paths are remapped so the bytes don't depend on the home dir, checkout or target dir.
+target := env_var_or_default("CARGO_TARGET_DIR", justfile_directory() / "target")
+build:
+    CARGO_TARGET_DIR={{target}} \
+    RUSTFLAGS="--remap-path-prefix=$HOME/.cargo=/cargo --remap-path-prefix={{justfile_directory()}}=/leokit-shielded-sign --remap-path-prefix={{target}}=/target" \
+    CFLAGS_wasm32_unknown_unknown="-ffile-prefix-map=$HOME/.cargo=/cargo -ffile-prefix-map={{justfile_directory()}}=/leokit-shielded-sign" \
+    CC_wasm32_unknown_unknown={{llvm}}/bin/clang \
+    AR_wasm32_unknown_unknown={{llvm}}/bin/llvm-ar \
+    cargo build --lib --release --target wasm32-unknown-unknown
+    wasm-bindgen --target web --out-dir pkg {{target}}/wasm32-unknown-unknown/release/leokit_shielded_sign.wasm
+    cd pkg && shasum -a 256 leokit_shielded_sign_bg.wasm leokit_shielded_sign.js > SHA256SUMS
+
+# Native tests (real Groth16 proving; needs Sapling params, see ZCASH_PARAMS_DIR).
+test:
+    cargo test --features tools
+
+# Regenerate the deterministic fixtures consumed by the SDK and app tests.
+fixtures:
+    cargo run --example gen_fixtures
+
+# Gate before publishing pkg/: hashes, NU6.3/NU7 branches at H = 3,543,405, exports, wasm-built txs verified natively.
+verify-release negative="":
+    node scripts/verify-release.mjs {{ if negative != "" { "--negative " + negative } else { "" } }}
+
+clean:
+    rm -rf target

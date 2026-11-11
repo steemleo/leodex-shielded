@@ -1,0 +1,4 @@
+# pkg/ holds the wasm-bindgen build output. The artifacts are committed so
+# deploys and fresh clones work without the Rust/LLVM toolchain. Rebuild with
+# `just build` from the crate root (see justfile), then commit the changed
+# files together with SHA256SUMS.

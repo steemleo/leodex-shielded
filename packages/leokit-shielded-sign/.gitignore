@@ -1,0 +1,7 @@
+# Rust build cache — don't commit
+target/
+# Cargo.lock IS committed (reproducible signer builds).
+
+# NOTE: pkg/ (wasm-bindgen output) IS committed, so deploys and fresh clones
+# get the exact published binaries without the WASM toolchain. See pkg/.gitignore
+# for rebuild instructions.

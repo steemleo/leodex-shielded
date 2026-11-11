@@ -1,0 +1,123 @@
+[package]
+name = "leokit-shielded-sign"
+version = "0.0.8"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Build, prove and sign Zcash Sapling v5 transactions in the browser (WebAssembly)"
+repository = "https://github.com/steemleo/leodex-shielded"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Native-only tooling (verify_tx). Never enabled for the wasm build.
+tools = []
+
+[[bin]]
+name = "verify_tx"
+path = "src/bin/verify_tx.rs"
+required-features = ["tools"]
+
+[package.metadata.wasm-pack.profile.release]
+# wasm-opt stays off: the release profile below is tuned for proving speed,
+# and the output must stay byte-reproducible without a binaryen version pin.
+wasm-opt = false
+
+[dependencies]
+# wasm bridge. Pinned exactly: wasm-bindgen-cli must be the same version
+# (`cargo install wasm-bindgen-cli --version 0.2.100 --locked`).
+wasm-bindgen = "=0.2.100"
+js-sys = "0.3"
+# Browser console access for stage-level debug logging from inside the signer
+# (wasm32 only; native builds no-op).
+# Only the "console" feature is needed; pulled separately because web-sys is
+# heavily cargo-feature-gated.
+web-sys = { version = "0.3", features = ["console"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+hex = "0.4"
+thiserror = "2"
+
+# Mnemonic → seed. std feature pulls unicode-normalization (needed by
+# Mnemonic::to_seed PBKDF2 path). default == ["std"], so just keep defaults.
+bip39 = "2"
+
+# ZIP-32 hierarchical derivation
+zip32 = "0.3"
+
+# Sapling crypto — `circuit` enables bellman/groth16 for spend+output proofs,
+# `multicore` disabled (rayon doesn't work on wasm32).
+sapling-crypto = { version = "=0.9.0", default-features = false, features = ["circuit"] }
+
+# v5 Tx primitives + serializer. `default = [multicore, std, circuits]`;
+# we strip multicore (rayon) and circuits (orchard halo2) but keep std so the
+# Builder + Transaction types are available.
+zcash_primitives = { version = "=0.31.0", default-features = false, features = ["std"] }
+# Stable NU7 cohort (2026-10-21). zcash_protocol 0.11.0 carries the mainnet
+# NU7 height (ZIP 259: 3,543,405, branch 0x77190ad9); lib.rs refuses to build
+# if the crate ever reports another. Exact pins: a signer never floats.
+zcash_protocol = "=0.11.0"
+zcash_address = "=0.14.0"
+zcash_encoding = "0.5"
+zcash_keys = { version = "=0.17.0", default-features = false, features = ["sapling"] }
+
+# Sapling proving keys. Default = [local-prover, multicore]. BOTH stripped:
+#   - multicore pulls rayon (no wasm32)
+#   - local-prover pulls `directories` → `home`, which has no wasm32 cfg
+#     path and refuses to compile.
+# We vendor a 70-line LocalTxProver equivalent (see src/prover.rs) that
+# uses zcash_proofs::parse_parameters (still public without the feature)
+# + sapling::circuit::{SpendParameters, OutputParameters}'s trait impls.
+zcash_proofs = { version = "=0.31.0", default-features = false }
+
+# sapling-crypto::circuit::{SpendParameters,OutputParameters} are needed
+# by our vendored prover.
+bellman = { version = "0.15", default-features = false }
+bls12_381 = "0.9"
+
+# zcash_transparent::builder::TransparentSigningSet is needed by
+# Builder::build(); zcash_primitives re-exports it under
+# `components::transparent` only when the `transparent-inputs` feature
+# is on, which we deliberately don't enable. Pull the crate directly.
+zcash_transparent = { version = "=0.11.0", default-features = false }
+
+# RNG: getrandom on wasm32 must route to crypto.getRandomValues(). Without
+# it, any crate that touches the OS RNG fails at runtime in the browser.
+# The NU7 cohort uses rand 0.10 / getrandom 0.4; on wasm32 its "wasm_js"
+# feature routes to crypto.getRandomValues (no RUSTFLAGS cfg needed in 0.4).
+getrandom = { version = "0.4", features = ["wasm_js"] }
+rand = "0.10"
+rand_core = "0.10"
+
+# Direct deps used by the builder helpers (decode_recipient + decode_rseed
+# + decode_ua_sapling_receiver). Pinning to versions zcash_primitives /
+# sapling-crypto already resolved transitively, to keep one canonical
+# copy in the dep graph.
+bech32 = "0.11"
+jubjub = { version = "0.11", default-features = false }
+# `orchard` is pulled transitively (zcash_primitives ⇒ orchard, default-
+# features off), but we need it as a direct dep so we can name
+# `orchard::keys::SpendAuthorizingKey` in the empty array passed to
+# Builder.build(). Match the transitive version.
+orchard = { version = "=0.16.0", default-features = false }
+
+[profile.release]
+# Tuned for Groth16 PROVING SPEED (single-threaded WASM), not size: Sapling
+# spend/output proof generation is compute-bound field arithmetic, so opt-level
+# 3 + thin LTO matter more than the ~1MB extra wasm. (wasm-opt is off; see
+# the wasm-pack profile above.)
+opt-level = 3
+strip = true
+lto = "thin"
+codegen-units = 1
+
+[dev-dependencies]
+incrementalmerkletree = { version = "0.9", features = ["legacy-api"] }
+serde_json = "1"
+
+# Native tests prove real Groth16 spends; unoptimized bellman takes minutes
+# per proof. Optimize dependencies in dev/test builds only.
+[profile.dev.package."*"]
+opt-level = 3

@@ -1,0 +1,21 @@
+{
+  "name": "leokit-shielded-sign",
+  "type": "module",
+  "description": "Build, prove and sign Zcash Sapling v5 transactions in the browser (WebAssembly)",
+  "version": "0.0.8",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/steemleo/leodex-shielded"
+  },
+  "files": [
+    "leokit_shielded_sign_bg.wasm",
+    "leokit_shielded_sign.js",
+    "leokit_shielded_sign.d.ts"
+  ],
+  "main": "leokit_shielded_sign.js",
+  "types": "leokit_shielded_sign.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

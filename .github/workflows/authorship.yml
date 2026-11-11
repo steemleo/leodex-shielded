@@ -1,0 +1,75 @@
+name: Authorship
+
+# This project has a single maintainer of record. Commits are expected to carry
+# that identity and no co-author trailers, so provenance stays unambiguous:
+# every published artifact traces to one accountable author.
+#
+# Runs on GitHub rather than in a local hook, so it cannot be skipped by a fresh
+# clone, a different editor, or --no-verify.
+
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  verify:
+    name: verify commit authorship
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: All commits carry the maintainer identity and no co-authors
+        env:
+          EXPECTED: "+steemleo@users.noreply.github.com"
+          # Read event context through env, never interpolated into the shell.
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          fail=0
+
+          # On a PR inspect only the commits it adds; on a push inspect all
+          # reachable history — cheap here, and it catches rewrites too.
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            range="origin/${BASE_REF}..HEAD"
+          else
+            range="HEAD"
+          fi
+          echo "Inspecting: $range"
+          echo
+
+          # Process substitution keeps the loop in this shell so `fail` sticks.
+          while IFS='|' read -r sha author committer; do
+            [ -z "${sha:-}" ] && continue
+            case "$author" in
+              *"$EXPECTED") ;;
+              *) echo "::error::$sha author is '$author' — expected an address ending '$EXPECTED'"; fail=1 ;;
+            esac
+            case "$committer" in
+              *"$EXPECTED") ;;
+              *) echo "::error::$sha committer is '$committer' — expected an address ending '$EXPECTED'"; fail=1 ;;
+            esac
+          done < <(git log --format='%H|%ae|%ce' "$range")
+
+          # A co-author trailer adds a second contributor of record.
+          if git log --format='%B' "$range" | grep -inE '^co-authored-by:'; then
+            echo "::error::a commit carries a Co-Authored-By trailer"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo
+            echo "Outside pull requests fail this check by design: accepted changes land as maintainer commits. See CONTRIBUTING.md."
+            exit 1
+          fi
+
+          echo "All commits carry the expected identity, with no co-author trailers."
